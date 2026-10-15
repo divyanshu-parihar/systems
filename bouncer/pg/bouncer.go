@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -23,19 +24,29 @@ type Bouncer struct {
 	MAX_REQUESTS    int    // Maximum number of requests ingested by the bouncer
 	pool            *Pool  // Connection pool to the postgres database
 	lastUsed        int    // Last used connection id
+	mu              sync.Mutex
 }
 
-func NewPostgresBouncer(dsn string, connections int, processes int) (*Bouncer, error) {
-	return &Bouncer{
+func NewPostgresBouncer(ctx context.Context, dsn string, max_requests int, max_connections int) (*Bouncer, error) {
+	bouncer := &Bouncer{
 		DB_URL:          dsn,
-		MAX_CONNECTIONS: processes,
-		MAX_REQUESTS:    connections,
+		MAX_CONNECTIONS: max_connections,
+		MAX_REQUESTS:    max_requests,
 		lastUsed:        0,
 		pool:            &Pool{connn: make(map[int]*Connection)},
-	}, nil
+	}
+	for id := range max_connections {
+		err := bouncer.AddConnection(ctx, id, dsn)
+		if err != nil {
+			slog.Error("Error adding the connections. We don't skip connections")
+			return nil, err
+		}
+	}
+	return bouncer, nil
 }
 
 func (b *Bouncer) AddConnection(ctx context.Context, id int, dsn string) error {
+	slog.Info("Info", "size", len(b.pool.connn), "conn", b.MAX_CONNECTIONS)
 	if len(b.pool.connn) >= b.MAX_CONNECTIONS {
 		return fmt.Errorf("maximum number of connections reached")
 	}
@@ -73,7 +84,11 @@ func (b *Bouncer) Serve(context context.Context) {
 }
 func (b *Bouncer) routeQueryRR(context context.Context, query string) (pgconn.CommandTag, error) {
 	slog.Info("Executing Query on Connection", "id", b.lastUsed+1%b.MAX_CONNECTIONS)
-	conn := b.pool.connn[b.lastUsed%b.MAX_CONNECTIONS]
+	b.mu.Lock()
+	index := b.lastUsed % b.MAX_CONNECTIONS
+	b.lastUsed = b.lastUsed + 1
+	b.mu.Unlock()
+	conn := b.pool.connn[index]
 
 	tag, err := conn.pgxConnection.Exec(context, query)
 	b.lastUsed = b.lastUsed + 1
