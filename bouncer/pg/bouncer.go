@@ -40,7 +40,7 @@ func (b *Bouncer) AddConnection(ctx context.Context, id int, dsn string) error {
 		return fmt.Errorf("maximum number of connections reached")
 	}
 	if _, exists := b.pool.connn[id]; exists {
-		return fmt.Errorf("connection with id %s already exists", id)
+		return fmt.Errorf("connection with id already exists %d", id)
 	}
 	conn, err := NewConnection(ctx, dsn)
 	if err != nil {
@@ -53,7 +53,8 @@ func (b *Bouncer) AddConnection(ctx context.Context, id int, dsn string) error {
 func (b *Bouncer) Serve(context context.Context) {
 	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
-		slog.Error("Failed to start server: %v", err)
+		slog.Error("Failed to start server", "error", err)
+		return
 	}
 	// Ensure the listener closes when the application exits
 	defer listener.Close()

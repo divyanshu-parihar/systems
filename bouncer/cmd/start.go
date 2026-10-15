@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	pg "github.com/divyanshu-parihar/systems/bouncer/pg"
 )
@@ -14,7 +15,7 @@ func Run() error {
 	ctx := context.Background()
 	bouncer, err := pg.NewPostgresBouncer(dsn, 10, 2)
 	if err != nil {
-		fmt.Errorf("Error creating bouncer: %s", err)
+		slog.Error("Error creating bouncer: ", "err", err)
 		return err
 	}
 
